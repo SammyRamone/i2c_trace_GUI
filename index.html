@@ -66,7 +66,10 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 .b-ok{background:rgba(34,197,94,.18);color:var(--ok)}
 .b-err{background:rgba(239,68,68,.18);color:var(--err)}
 .b-pend{background:rgba(100,116,139,.22);color:var(--pend)}
-.opicon{display:inline-block;width:18px;text-align:center;font-family:var(--mono);color:var(--muted)}
+.opbadge{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:700;padding:1px 8px;border-radius:5px;letter-spacing:.5px}
+.b-w{background:rgba(34,197,94,.16);color:var(--ok)}
+.b-r{background:rgba(59,130,246,.16);color:#60a5fa}
+.b-wr{background:rgba(168,85,247,.16);color:#c084fc}
 #detailbody{flex:1;overflow:auto}
 .hidden{display:none!important}
 .addrrow{display:flex;justify-content:space-between;align-items:center;gap:10px;
@@ -82,6 +85,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
   border-radius:4px;background:var(--panel2)}
 .hex .b.rd{background:rgba(245,158,11,.25)}
 .arrow{color:var(--muted)}
+.nol{color:var(--muted);font-style:italic;font-size:11px;margin-left:2px}
 .meta{font-size:12px;color:var(--muted);margin:10px 0 4px}
 .meta span{color:var(--text);font-family:var(--mono)}
 .err-line{color:var(--err)}
@@ -176,8 +180,10 @@ const dur=ms=>ms<0.001?ms.toFixed(3)+" µs":ms<1?ms.toFixed(3)+" ms":ms.toFixed(
 const errName=ret=>{if(ret==null)return "";const n=-ret;
   const M={32:"EPIPE",36:"ENOLCK",121:"ETIMEDOUT",11:"EAGAIN",5:"EIO",6:"ESRCH",104:"ECONNRESET"};
   return (M[n]||"E"+n)+" ("+ret+")"};
-const opOf=t=>{const o=t.segs.map(s=>s.op).filter((v,i,a)=>a.indexOf(v)===i).join("+").toUpperCase();return o};
-const dataStr=t=>t.segs.filter(s=>s.op==="write").map(s=>s.data.join("-")).filter(Boolean).join(", ")||"—";
+const opParts=t=>{const hasW=t.segs.some(s=>s.op.endsWith("write"));const hasR=t.segs.some(s=>s.op.endsWith("read"));const p=[];if(hasW)p.push("W");if(hasR)p.push("R");return p};
+const opOf=t=>{const p=opParts(t);return p.length?p.join("+"):"—"};
+const opBadgeCls=t=>{const hasW=t.segs.some(s=>s.op.endsWith("write"));const hasR=t.segs.some(s=>s.op.endsWith("read"));if(hasW&&hasR)return"b-wr";if(hasW)return"b-w";if(hasR)return"b-r";return""};
+const dataStr=t=>t.segs.filter(s=>s.op.endsWith("write")).map(s=>s.data.join("-")).filter(Boolean).join(", ")||"—";
 const busColor=b=>{const cs=["#3a86ff","#a855f7","#10b981","#f97316","#ec4899","#14b8a6"];
   return cs[Math.abs([...b].reduce((a,c)=>a*31+c.charCodeAt(0)|0,7))%cs.length]};
 
@@ -314,9 +320,9 @@ function renderTimeline(){
     if(!e.deltaY)return;
     const rect=box.getBoundingClientRect();
     const curX=e.clientX-rect.left;
-    const factor=e.deltaY<0?1.25:0.8;
+    const factor=e.deltaY<0?2.5:0.4;
     const tAt=(box.scrollLeft+curX-padL)/pps+full0;
-    TLC.pps=Math.max(1e-6,Math.min(1e3,TLC.pps*factor));
+    TLC.pps=Math.max(1e-4,Math.min(1e7,TLC.pps*factor));
     renderTimeline();
     box.scrollLeft=(tAt-full0)*TLC.pps+padL-curX;
     TLC.prevScroll=box.scrollLeft;
@@ -352,26 +358,26 @@ function renderTimeline(){
   const zoom=(f)=>{
     const cx=box.scrollLeft+(box.clientWidth||900)/2;
     const tC=(cx-padL)/pps+full0;
-    TLC.pps=Math.max(1e-6,Math.min(1e3,TLC.pps*f));
+    TLC.pps=Math.max(1e-4,Math.min(1e7,TLC.pps*f));
     renderTimeline();
     box.scrollLeft=(tC-full0)*TLC.pps+padL-(box.clientWidth||900)/2;
     TLC.prevScroll=box.scrollLeft;
   };
-  $("#tlzin").onclick =()=>zoom(1.6);
-  $("#tlzout").onclick=()=>zoom(1/1.6);
+  $("#tlzin").onclick =()=>zoom(3);
+  $("#tlzout").onclick=()=>zoom(1/3);
   $("#tlzfit").onclick=()=>{TLC.pps=TLC.baseline;TLC.prevScroll=0;renderTimeline();};
 }
 function txgCount(g){return g.length}
 
 function renderTable(){
-  const tb=$("#tbody");const rows=FILTERED.slice().reverse();
+  const tb=$("#tbody");const rows=FILTERED.slice();
   tb.innerHTML=rows.map(t=>{
     const st=t.pending?`<span class="badge b-pend">no result</span>`:
       (t.ok?`<span class="badge b-ok">ok (${t.ret})</span>`:`<span class="badge b-err">err (${t.ret})</span>`);
     return `<tr data-id="${t.id}"><td>${t.id}</td><td class="num">${t.t0.toFixed(6)}</td>`+
       `<td class="num">${((t.t1-t.t0)*1000).toFixed(4)}</td>
        <td>${t.bus}</td><td>${hex(parseInt(t.addr,16))}</td>
-       <td><span class="opicon">${opOf(t).replace("R","↔").replace("W","→")}</span>${opOf(t)}</td>
+        <td><span class="opbadge ${opBadgeCls(t)}">${opOf(t)}</span></td>
        <td class="num">${dataStr(t)}</td><td>${st}</td>
        <td class="${t.ok?"":"err-line"}">${t.ok?"":errName(t.ret)}</td></tr>`;
   }).join("");
@@ -414,12 +420,20 @@ function renderDetail(){
   const t=SELECTED;
   const st=t.pending?'<span class="badge b-pend">no result</span>':
     (t.ok?'<span class="badge b-ok">ok (ret='+t.ret+')</span>':'<span class="badge b-err">'+errName(t.ret)+'</span>');
+  const isRead=s=>s.op.endsWith("read");
   const segs=t.segs.map(s=>{
-    const cls=s.op==="read"?"rd":"";
-    const bytes=(s.data&&s.data.length?s.data:new Array(s.len).fill("··"))
-      .map(b=>`<span class="b ${cls}">${b.padStart(2,"0").toUpperCase()}</span>`).join("");
-    const arrow=s.op==="read"?'<span class="arrow">(device → master, '+s.len+' B)</span>'
-      :'<span class="arrow">(master → device)</span>';
+    const cls=isRead(s)?"rd":"";
+    let bytes;
+    if(isRead(s)){
+      bytes=`<span class="nol" title="i2c_read ftrace event carries only the byte count, not the returned bytes">(${s.len} B read · bytes not in log)</span>`;
+    } else if(s.data&&s.data.length){
+      bytes=s.data.map(b=>`<span class="b ${cls}">${b.padStart(2,"0").toUpperCase()}</span>`).join("");
+    } else if(s.len>0){
+      bytes=`<span class="nol">(${s.len} B written · bytes not in log)</span>`;
+    } else {
+      bytes=`<span class="nol">(address probe · no data)</span>`;
+    }
+    const arrow=isRead(s)?'<span class="arrow">device → master</span>':'<span class="arrow">master → device</span>';
     return `<div class="hex">${arrow}${bytes}</div>`;
   }).join("");
   d.innerHTML=`
