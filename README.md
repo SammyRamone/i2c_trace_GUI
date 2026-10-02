@@ -11,6 +11,10 @@ with live filtering.
 No third-party packages are required — it runs on the **Python 3 standard
 library only**.
 
+<p align="center">
+  <img src="screenshot.png" alt="i2c_tracer GUI — timeline, transaction table, per-address view and detail pane" width="100%">
+</p>
+
 This software has been vibe coded has not been thoroughly tested. Use on your own risk.
 
 ---
