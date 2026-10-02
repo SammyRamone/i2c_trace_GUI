@@ -11,6 +11,8 @@ with live filtering.
 No third-party packages are required — it runs on the **Python 3 standard
 library only**.
 
+This software has been vibe coded has not been thoroughly tested. Use on your own risk.
+
 ---
 
 ## Features

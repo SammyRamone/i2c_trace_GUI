@@ -7,7 +7,7 @@
 :root{
   --bg:#0f1218;--panel:#161b24;--panel2:#1c2330;--border:#2a3342;
   --text:#e6ecf5;--muted:#8792a3;--accent:#3a86ff;
-  --ok:#22c55e;--err:#ef4444;--w:#3a86ff;--r:#f59e0b;--pend:#64748b;
+  --ok:#22c55e;--err:#ef4444;--w:#3a86ff;--r:#f59e0b;--wr:#c084fc;--pend:#64748b;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box}
@@ -68,9 +68,9 @@ td.flags{font-family:var(--mono);font-size:11.5px;color:#b9c4d6}
 .b-err{background:rgba(239,68,68,.18);color:var(--err)}
 .b-pend{background:rgba(100,116,139,.22);color:var(--pend)}
 .opbadge{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:700;padding:1px 8px;border-radius:5px;letter-spacing:.5px}
-.b-w{background:rgba(34,197,94,.16);color:var(--ok)}
-.b-r{background:rgba(59,130,246,.16);color:#60a5fa}
-.b-wr{background:rgba(168,85,247,.16);color:#c084fc}
+.b-w{background:rgba(58,134,255,.18);color:var(--w)}
+.b-r{background:rgba(245,158,11,.18);color:var(--r)}
+.b-wr{background:rgba(192,132,252,.18);color:var(--wr)}
 #detailbody{flex:1;overflow:auto}
 .hidden{display:none!important}
 .addrrow{display:flex;justify-content:space-between;align-items:center;gap:10px;
@@ -129,9 +129,9 @@ td.flags{font-family:var(--mono);font-size:11.5px;color:#b9c4d6}
   </div>
   <div class="fgroup"><button id="reset">reset</button></div>
   <div class="legend">
-    <span class="chip"><i class="dot" style="background:var(--w)"></i>write</span>
-    <span class="chip"><i class="dot" style="background:var(--r)"></i>read</span>
-    <span class="chip"><i class="dot" style="background:var(--ok)"></i>ok (ACK)</span>
+    <span class="chip"><i class="dot" style="background:var(--w)"></i>write (ok)</span>
+    <span class="chip"><i class="dot" style="background:var(--r)"></i>read (ok)</span>
+    <span class="chip"><i class="dot" style="background:var(--wr)"></i>write+read (ok)</span>
     <span class="chip"><i class="dot" style="background:var(--err)"></i>err (NACK)</span>
     <span class="chip"><i class="dot" style="background:var(--pend)"></i>no result</span>
   </div>
@@ -186,9 +186,22 @@ const opOf=t=>{const p=opParts(t);return p.length?p.join("+"):"—"};
 const opBadgeCls=t=>{const hasW=t.segs.some(s=>s.op.endsWith("write"));const hasR=t.segs.some(s=>s.op.endsWith("read"));if(hasW&&hasR)return"b-wr";if(hasW)return"b-w";if(hasR)return"b-r";return""};
 const dataStr=t=>t.segs.filter(s=>s.op.endsWith("write")).map(s=>s.data.join("-")).filter(Boolean).join(", ")||"—";
 const FLAG_NAMES={1:"RD",0x200:"TEN",0x400:"RECV_LEN",0x800:"NO_RD_ACK",0x1000:"PROC_CALL",0x2000:"RESTART_NO_RD"};
+const FLAG_DESC={1:"read direction (I2C_M_RD) — this is a read transaction",
+  0x200:"10-bit device addressing (I2C_M_TEN)",
+  0x400:"response length is placed in msg->len (I2C_M_RECV_LEN)",
+  0x800:"do not expect an ack on read (I2C_M_NO_RD_ACK)",
+  0x1000:"kernel process call (I2C_M_PROC_CALL)",
+  0x2000:"repeated start, do not read (I2C_M_RESTART_NO_RD)"};
+const flagDesc=raw=>{const n=parseInt(raw||"0000",16);
+  if(!n)return "no flags set — plain write";
+  const set=Object.keys(FLAG_DESC).map(k=>+k).filter(b=>n&b);
+  const known=set.map(b=>FLAG_DESC[b]).join("  ·  ");
+  const unknowns=set.filter(b=>FLAG_NAMES[b]===undefined);
+  return (known?"known: "+known:"unknown bits only")+
+    (unknowns.length?"  ·  unknown bits: "+unknowns.map(b=>"0x"+b.toString(16).toUpperCase()).join(", "):"");};
 const flagBits=f=>{const n=parseInt(f,16);if(!n)return "";return Object.keys(FLAG_NAMES).map(k=>+k).filter(b=>n&b).map(b=>FLAG_NAMES[b]).join("|")};
 const flagsStr=raw=>{const names=flagBits(raw||"0000");return names?(names+" · 0x"+String(raw).toUpperCase()):"0x"+String(raw||"0000").toUpperCase()};
-const flagsOf=t=>flagsStr((t.flags|| (t.segs&&t.segs[0]&&t.segs[0].flags))||"0000");
+const flagsOf=t=>flagBits((t.flags|| (t.segs&&t.segs[0]&&t.segs[0].flags))||"0000")||"none";
 const flagsNamesOnly=t=>flagBits((t.flags|| (t.segs&&t.segs[0]&&t.segs[0].flags))||"0000")||"—";
 const busColor=b=>{const cs=["#3a86ff","#a855f7","#10b981","#f97316","#ec4899","#14b8a6"];
   return cs[Math.abs([...b].reduce((a,c)=>a*31+c.charCodeAt(0)|0,7))%cs.length]};
@@ -217,17 +230,21 @@ function applyFilter(){
      dataStr(t).toLowerCase().includes(q)||t.task.toLowerCase().includes(q)));
   renderStats();renderTimeline();renderTable();renderAddr();
 }
+const tlColor=t=>{if(t.pending)return "var(--pend)";if(!t.ok)return "var(--err)";
+  const hasW=t.segs.some(s=>s.op.endsWith("write")),hasR=t.segs.some(s=>s.op.endsWith("read"));
+  if(hasW&&hasR)return "var(--wr)";if(hasR)return "var(--r)";return "var(--w)"};
 function renderStats(){
   const tot=FILTERED.length,
   ok=FILTERED.filter(t=>t.ok).length,
   er=FILTERED.filter(t=>t.pending===false&&!t.ok).length,
   pe=FILTERED.filter(t=>t.pending).length;
+  const busSeen=[];FILTERED.forEach(t=>{if(!busSeen.includes(t.bus))busSeen.push(t.bus);});
   $("#stats").innerHTML=
     `<span>transactions <b>${tot}</b></span>`+
     `<span>ok <b class="ok-line">${ok}</b></span>`+
     `<span>err <b class="err-line">${er}</b></span>`+
     `<span>no-result <b>${pe}</b></span>`+
-    `<span>buses <b>${D.summary.buses.join(", ")}</b></span>`;
+    `<span>buses <b>${busSeen.length?busSeen.join(", "):"—"}</b></span>`;
 }
 
 function busShort(b){return b.replace("i2c-","")}
@@ -299,11 +316,11 @@ function renderTimeline(){
     const y=laneT+li*rowH;
     let s=toX(t.t0), e=toX(t.t1);
     if(e-s<3)e=s+3;
-    const c=t.pending?"var(--pend)":(t.ok?"var(--ok)":"var(--err)");
+    const c=tlColor(t);
     const by=y+9,bh=rowH-18;
     svg+=`<g class="tlrow" data-id="${t.id}" style="cursor:pointer">
 `;
-    const titleAttr=`id ${t.id} · ${t.bus} · ${hex(parseInt(t.addr,16))} · ${fmtDur(t.t1-t.t0)} · ${t.ok?"ok":(t.pending?"no result":"err "+errName(t.ret))}`;
+    const titleAttr=`id ${t.id} · ${t.bus} · ${hex(parseInt(t.addr,16))} · ${fmtDur(t.t1-t.t0)} · ${t.pending?"no result":(t.ok?opOf(t)+" ok (ACK)":opOf(t)+" err "+errName(t.ret))}`;
     svg+=`<title>${titleAttr}</title>`;
     svg+=`<rect x="${s}" y="${by}" width="${e-s}" height="${bh}" rx="3" fill="${c}" opacity="0.92"/>`;
     svg+=`</g>`;
@@ -379,12 +396,13 @@ function renderTable(){
   const tb=$("#tbody");const rows=FILTERED.slice();
   tb.innerHTML=rows.map(t=>{
     const st=t.pending?`<span class="badge b-pend">no result</span>`:
-      (t.ok?`<span class="badge b-ok">ok (${t.ret})</span>`:`<span class="badge b-err">err (${t.ret})</span>`);
+      (t.ok?`<span class="badge b-ok" title="ACK · ${t.ret} I2C message(s) transferred">OK</span>`
+           :`<span class="badge b-err" title="error · errno ${-t.ret}">ERR</span>`);
     return `<tr data-id="${t.id}"><td>${t.id}</td><td class="num">${t.t0.toFixed(6)}</td>`+
       `<td class="num">${((t.t1-t.t0)*1000).toFixed(4)}</td>
        <td>${t.bus}</td><td>${hex(parseInt(t.addr,16))}</td>
          <td><span class="opbadge ${opBadgeCls(t)}">${opOf(t)}</span></td>
-        <td class="flags" title="flags: ${flagsStr((t.flags|| (t.segs&&t.segs[0]&&t.segs[0].flags))||"0000")}">${flagsNamesOnly(t)}</td>
+        <td class="flags" title="flags: ${flagsStr((t.flags|| (t.segs&&t.segs[0]&&t.segs[0].flags))||"0000")}\n\n${flagDesc((t.flags|| (t.segs&&t.segs[0]&&t.segs[0].flags))||"0000")}">${flagsNamesOnly(t)}</td>
         <td class="num">${dataStr(t)}</td><td>${st}</td>
        <td class="${t.ok?"":"err-line"}">${t.ok?"":errName(t.ret)}</td></tr>`;
   }).join("");
@@ -398,9 +416,8 @@ function renderAddr(){
   const el=$("#view-addr");
   const by={};
   FILTERED.forEach(t=>{const k=t.bus+"|"+t.addr;
-    by[k]=by[k]||{t,ok:0,err:0,pend:0}});
-  Object.values(by).forEach(g=>{
-    g.t.ok?g.ok++:g.t.pending?g.pend++:g.err++});
+    const g=by[k]=by[k]||{t,ok:0,err:0,pend:0};
+    t.ok?g.ok++:t.pending?g.pend++:g.err++});
   const arr=Object.values(by).sort((a,b)=>
     a.t.bus.localeCompare(b.t.bus)||parseInt(a.t.addr,16)-parseInt(b.t.addr,16));
   if(!arr.length){el.innerHTML='<div class="empty">No transactions.</div>';return}
@@ -412,7 +429,8 @@ function renderAddr(){
       <span class="bar-mini"><i style="width:${w};background:var(--ok)"></i>
         <i style="width:${wr};background:var(--err)"></i>
         <i style="width:${wp};background:var(--pend)"></i></span>
-      <span style="font-family:var(--mono)">${g.ok}/${g.err}/${g.pend}</span></div>`;
+      <span style="font-family:var(--mono)" title="ok ${g.ok} · err ${g.err} · no-result ${g.pend} (of ${tot})">${g.ok}/${g.err}/${g.pend}</span>
+      <span style="color:var(--muted);font-size:11px" title="ok / err / no-result">${g.ok} ok · ${g.err} err · ${g.pend} no-result</span></div>`;
   }).join("");
   el.querySelectorAll(".addrrow").forEach(r=>r.addEventListener("click",()=>{
     const [b,a]=r.dataset.k.split("|");
@@ -441,14 +459,15 @@ function renderDetail(){
       bytes=`<span class="nol">(address probe · no data)</span>`;
     }
     const arrow=isRead(s)?'<span class="arrow">device → master</span>':'<span class="arrow">master → device</span>';
-    const fchip=`<span class="nol" title="segment f= flag bits (0x${s.flags})">${flagBits(s.flags)||"no flags"}</span>`;
+    const fchip=`<span class="nol" title="segment flags (0x${s.flags})\n\n${flagDesc(s.flags)}">${flagBits(s.flags)||"no flags"}</span>`;
     return `<div class="hex">${arrow}${bytes}${fchip}</div>`;
   }).join("");
   d.innerHTML=`
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
       <span style="font-family:var(--mono)">${t.bus}</span>
       <span style="font-family:var(--mono)">addr ${hex(parseInt(t.addr,16))}</span>
-      <span style="font-family:var(--mono)" title="I2C message flags (f=)">flags ${flagsOf(t)}</span>
+      <span style="font-family:var(--mono)" title="${flagDesc((t.flags|| (t.segs&&t.segs[0]&&t.segs[0].flags))||"0000")}">flags ${flagsOf(t)}</span>
+      <span style="color:var(--muted);font-size:11px;max-width:520px">${flagDesc((t.flags|| (t.segs&&t.segs[0]&&t.segs[0].flags))||"0000")}</span>
       ${st}</div>
    <div class="meta">
      <span>pid</span> ${t.pid} · <span>task</span> ${t.task} · <span>cpu</span> ${t.cpu}<br>
