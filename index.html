@@ -62,6 +62,7 @@ th{position:sticky;top:0;background:var(--panel2);color:var(--muted);font-weight
 tr{cursor:pointer}
 tbody tr:hover{background:var(--panel2)}
 td.num,th.num{text-align:right;font-family:var(--mono)}
+td.flags{font-family:var(--mono);font-size:11.5px;color:#b9c4d6}
 .badge{padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600}
 .b-ok{background:rgba(34,197,94,.18);color:var(--ok)}
 .b-err{background:rgba(239,68,68,.18);color:var(--err)}
@@ -162,7 +163,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
   </div>
   <div id="view-tbl" class="tblwrap"><table><thead><tr>
     <th>#</th><th>time (s)</th><th>dur (ms)</th><th>bus</th><th>addr</th>
-    <th>R/W</th><th>data</th><th>result</th><th>err</th>
+    <th>R/W</th><th>flags</th><th>data</th><th>result</th><th>err</th>
   </tr></thead><tbody id="tbody"></tbody></table></div>
   <div id="view-addr" class="hidden" style="overflow:auto;flex:1;padding:6px 10px"></div>
   <div id="view-detail" class="hidden" style="overflow:auto;flex:1;padding:12px">
@@ -184,6 +185,11 @@ const opParts=t=>{const hasW=t.segs.some(s=>s.op.endsWith("write"));const hasR=t
 const opOf=t=>{const p=opParts(t);return p.length?p.join("+"):"—"};
 const opBadgeCls=t=>{const hasW=t.segs.some(s=>s.op.endsWith("write"));const hasR=t.segs.some(s=>s.op.endsWith("read"));if(hasW&&hasR)return"b-wr";if(hasW)return"b-w";if(hasR)return"b-r";return""};
 const dataStr=t=>t.segs.filter(s=>s.op.endsWith("write")).map(s=>s.data.join("-")).filter(Boolean).join(", ")||"—";
+const FLAG_NAMES={1:"RD",0x200:"TEN",0x400:"RECV_LEN",0x800:"NO_RD_ACK",0x1000:"PROC_CALL",0x2000:"RESTART_NO_RD"};
+const flagBits=f=>{const n=parseInt(f,16);if(!n)return "";return Object.keys(FLAG_NAMES).map(k=>+k).filter(b=>n&b).map(b=>FLAG_NAMES[b]).join("|")};
+const flagsStr=raw=>{const names=flagBits(raw||"0000");return names?(names+" · 0x"+String(raw).toUpperCase()):"0x"+String(raw||"0000").toUpperCase()};
+const flagsOf=t=>flagsStr((t.flags|| (t.segs&&t.segs[0]&&t.segs[0].flags))||"0000");
+const flagsNamesOnly=t=>flagBits((t.flags|| (t.segs&&t.segs[0]&&t.segs[0].flags))||"0000")||"—";
 const busColor=b=>{const cs=["#3a86ff","#a855f7","#10b981","#f97316","#ec4899","#14b8a6"];
   return cs[Math.abs([...b].reduce((a,c)=>a*31+c.charCodeAt(0)|0,7))%cs.length]};
 
@@ -377,8 +383,9 @@ function renderTable(){
     return `<tr data-id="${t.id}"><td>${t.id}</td><td class="num">${t.t0.toFixed(6)}</td>`+
       `<td class="num">${((t.t1-t.t0)*1000).toFixed(4)}</td>
        <td>${t.bus}</td><td>${hex(parseInt(t.addr,16))}</td>
-        <td><span class="opbadge ${opBadgeCls(t)}">${opOf(t)}</span></td>
-       <td class="num">${dataStr(t)}</td><td>${st}</td>
+         <td><span class="opbadge ${opBadgeCls(t)}">${opOf(t)}</span></td>
+        <td class="flags" title="flags: ${flagsStr((t.flags|| (t.segs&&t.segs[0]&&t.segs[0].flags))||"0000")}">${flagsNamesOnly(t)}</td>
+        <td class="num">${dataStr(t)}</td><td>${st}</td>
        <td class="${t.ok?"":"err-line"}">${t.ok?"":errName(t.ret)}</td></tr>`;
   }).join("");
   $("#dn").textContent=FILTERED.length+" tx";
@@ -434,13 +441,15 @@ function renderDetail(){
       bytes=`<span class="nol">(address probe · no data)</span>`;
     }
     const arrow=isRead(s)?'<span class="arrow">device → master</span>':'<span class="arrow">master → device</span>';
-    return `<div class="hex">${arrow}${bytes}</div>`;
+    const fchip=`<span class="nol" title="segment f= flag bits (0x${s.flags})">${flagBits(s.flags)||"no flags"}</span>`;
+    return `<div class="hex">${arrow}${bytes}${fchip}</div>`;
   }).join("");
   d.innerHTML=`
-   <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
-     <span style="font-family:var(--mono)">${t.bus}</span>
-     <span style="font-family:var(--mono)">addr ${hex(parseInt(t.addr,16))}</span>
-     ${st}</div>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span style="font-family:var(--mono)">${t.bus}</span>
+      <span style="font-family:var(--mono)">addr ${hex(parseInt(t.addr,16))}</span>
+      <span style="font-family:var(--mono)" title="I2C message flags (f=)">flags ${flagsOf(t)}</span>
+      ${st}</div>
    <div class="meta">
      <span>pid</span> ${t.pid} · <span>task</span> ${t.task} · <span>cpu</span> ${t.cpu}<br>
      <span>t0</span> ${t.t0.toFixed(6)} s · <span>t1</span> ${t.t1.toFixed(6)} s ·
