@@ -57,6 +57,16 @@ with the project.
 
 ## Usage
 
+First activate tracing with 
+```bash
+echo nop > /sys/kernel/debug/tracing/current_tracer
+echo 1 > /sys/kernel/debug/tracing/events/i2c/enable
+echo 1 > /sys/kernel/debug/tracing/tracing_on
+```
+This will generate the file /sys/kernel/debug/tracing/trace which will contain all data in a not so well readable format.
+The file might require sudo rights to open. You can either run the script with sudo or change the rights with the chmod command.
+
+The script usage is the following.
 ```bash
 python3 i2c_tracer.py <LOG_FILE> [OPTIONS]
 ```
