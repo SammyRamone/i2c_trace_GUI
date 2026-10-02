@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>I2C Trace Viewer</title>
+<style>
+:root{
+  --bg:#0f1218;--panel:#161b24;--panel2:#1c2330;--border:#2a3342;
+  --text:#e6ecf5;--muted:#8792a3;--accent:#3a86ff;
+  --ok:#22c55e;--err:#ef4444;--w:#3a86ff;--r:#f59e0b;--pend:#64748b;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:14px/1.4 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+a{color:var(--accent)}
+header{display:flex;align-items:center;gap:14px;padding:10px 16px;
+  border-bottom:1px solid var(--border);background:var(--panel)}
+header h1{font-size:15px;margin:0;font-weight:600;letter-spacing:.2px}
+header .src{color:var(--muted);font-family:var(--mono);font-size:12px}
+.spacer{flex:1}
+.kbd{color:var(--muted);font-size:12px}
+.layout{display:grid;grid-template-columns:1fr 380px;grid-template-rows:auto auto 1fr;
+  grid-template-areas:"tools tools""main detail";gap:10px;padding:10px;
+  height:calc(100% - 47px)}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.card-h{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);
+  font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.tlb{display:inline-flex;gap:4px;align-items:center}
+.tlb button{padding:3px 8px;font-size:12px;border-radius:6px}
+.tlb button:hover{border-color:var(--accent);color:var(--text)}
+.tlhint{font-size:10.5px;color:var(--muted);font-weight:400;letter-spacing:0;text-transform:none}
+.card-b{padding:10px 12px}
+#tools{grid-area:tools;display:flex;flex-wrap:wrap;gap:14px;align-items:center;padding:10px 12px}
+.fgroup{display:flex;gap:8px;align-items:center}
+.flabel{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+select,input[type=text]{
+  background:var(--panel2);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:5px 8px;font-size:13px}
+input[type=text]{width:160px;font-family:var(--mono)}
+button{background:var(--panel2);color:var(--text);border:1px solid var(--border);
+  border-radius:6px;padding:5px 10px;font-size:13px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+.stats{display:flex;gap:16px;flex-wrap:wrap;width:100%;font-size:12px;color:var(--muted)}
+.stats b{color:var(--text);font-weight:600;font-family:var(--mono)}
+#tlwrap{grid-area:main;display:flex;flex-direction:column;min-height:0}
+#tl{overflow:auto;flex:1}
+canvas{display:block}
+#detail{grid-area:detail;display:flex;flex-direction:column;min-height:0}
+.tabs{display:flex;gap:2px}
+.tabs button{border:none;border-bottom:2px solid transparent;border-radius:6px 6px 0 0;
+  background:transparent;color:var(--muted)}
+.tabbtn{background:var(--panel);border:1px solid var(--border);border-bottom:none;border-radius:6px}
+.tabbtn.active{color:var(--text);border-bottom-color:var(--accent);position:relative;z-index:1}
+.tblwrap{overflow:auto;flex:1;padding:0}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:5px 8px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap}
+th{position:sticky;top:0;background:var(--panel2);color:var(--muted);font-weight:600;
+  text-transform:uppercase;font-size:10.5px;letter-spacing:.4px;z-index:2}
+tr{cursor:pointer}
+tbody tr:hover{background:var(--panel2)}
+td.num,th.num{text-align:right;font-family:var(--mono)}
+.badge{padding:1px 7px;border-radius:20px;font-size:11px;font-weight:600}
+.b-ok{background:rgba(34,197,94,.18);color:var(--ok)}
+.b-err{background:rgba(239,68,68,.18);color:var(--err)}
+.b-pend{background:rgba(100,116,139,.22);color:var(--pend)}
+.opicon{display:inline-block;width:18px;text-align:center;font-family:var(--mono);color:var(--muted)}
+#detailbody{flex:1;overflow:auto}
+.hidden{display:none!important}
+.addrrow{display:flex;justify-content:space-between;align-items:center;gap:10px;
+  padding:7px 4px;cursor:pointer;border-bottom:1px solid var(--border)}
+.addrrow:hover{background:var(--panel2)}
+.addrrow.sel{background:var(--panel2);box-shadow:inset 2px 0 0 var(--accent)}
+.bar-mini{height:8px;border-radius:4px;background:var(--panel2);overflow:hidden;display:flex;flex:1}
+.bar-mini i{height:100%;display:block}
+.hex{font-family:var(--mono);font-size:12px;color:#b9c4d6;background:#0c0f14;
+  border:1px solid var(--border);border-radius:6px;padding:8px 10px;
+  display:flex;align-items:center;gap:7px;overflow-x:auto}
+.hex .b{font-family:var(--mono);min-width:26px;text-align:center;padding:2px 4px;
+  border-radius:4px;background:var(--panel2)}
+.hex .b.rd{background:rgba(245,158,11,.25)}
+.arrow{color:var(--muted)}
+.meta{font-size:12px;color:var(--muted);margin:10px 0 4px}
+.meta span{color:var(--text);font-family:var(--mono)}
+.err-line{color:var(--err)}
+.ok-line{color:var(--ok)}
+.empty{color:var(--muted);padding:30px;text-align:center}
+.legend{display:flex;gap:14px;flex-wrap:wrap}
+@media(max-width:980px){.layout{grid-template-columns:1fr;grid-template-rows:auto auto auto;
+  grid-template-areas:"tools""main""detail";height:auto}
+  body,html{height:auto} #tl,#detailbody{max-height:70vh}}
+</style>
+</head>
+<body>
+<header>
+  <h1>I2C Trace Viewer</h1>
+  <span class="src" id="src"></span>
+  <div class="spacer"></div>
+  <span class="kbd">Click a bar / row to inspect</span>
+</header>
+
+<div id="tools" class="card">
+  <div class="fgroup">
+    <span class="flabel">Bus</span>
+    <select id="fbus"></select>
+  </div>
+  <div class="fgroup">
+    <span class="flabel">Address</span>
+    <select id="faddr"></select>
+  </div>
+  <div class="fgroup">
+    <span class="flabel">Result</span>
+    <select id="fresult">
+      <option value="any">all</option>
+      <option value="ok">ack (ok)</option>
+      <option value="err">nack / err</option>
+      <option value="pend">pending</option>
+    </select>
+  </div>
+  <div class="fgroup">
+    <input type="text" id="fq" placeholder="filter hex/data…">
+  </div>
+  <div class="fgroup"><button id="reset">reset</button></div>
+  <div class="legend">
+    <span class="chip"><i class="dot" style="background:var(--w)"></i>write</span>
+    <span class="chip"><i class="dot" style="background:var(--r)"></i>read</span>
+    <span class="chip"><i class="dot" style="background:var(--ok)"></i>ok (ACK)</span>
+    <span class="chip"><i class="dot" style="background:var(--err)"></i>err (NACK)</span>
+    <span class="chip"><i class="dot" style="background:var(--pend)"></i>no result</span>
+  </div>
+  <div class="stats" id="stats"></div>
+</div>
+
+<div id="tlwrap" class="card">
+  <div class="card-h">Timeline
+    <span class="tlhint">scroll to zoom · drag to pan</span>
+    <span id="tlmeta" style="margin-left:auto;text-transform:none;font-family:var(--mono)"></span>
+    <span class="tlb">
+      <button id="tlzin"  title="zoom in (+)">+</button>
+      <button id="tlzout" title="zoom out (−)">−</button>
+      <button id="tlzfit" title="fit to session (0)">100%</button>
+    </span>
+  </div>
+  <div id="tl"></div>
+</div>
+
+<div id="detail" class="card">
+  <div class="card-h" style="gap:0">
+    <div class="tabs" id="tabs" style="gap:0">
+      <button id="ttbl" class="tabbtn active">Table</button>
+      <button id="taddr" class="tabbtn">Per address</button>
+      <button id="tdetail" class="tabbtn">Detail</button>
+    </div>
+    <span class="spacer"></span>
+    <span id="dn"></span>
+  </div>
+  <div id="view-tbl" class="tblwrap"><table><thead><tr>
+    <th>#</th><th>time (s)</th><th>dur (ms)</th><th>bus</th><th>addr</th>
+    <th>R/W</th><th>data</th><th>result</th><th>err</th>
+  </tr></thead><tbody id="tbody"></tbody></table></div>
+  <div id="view-addr" class="hidden" style="overflow:auto;flex:1;padding:6px 10px"></div>
+  <div id="view-detail" class="hidden" style="overflow:auto;flex:1;padding:12px">
+    <div class="empty">Select a transaction to see the byte-level detail.</div>
+  </div>
+</div>
+
+<script>
+let D=null, FILTERED=[], SELECTED=null;
+const $=s=>document.querySelector(s);
+const hex=n=>"0x"+n.toString(16).toUpperCase().padStart(2,"0");
+const normAddr=a=>parseInt(a,16).toString(16);
+const fmtTime=s=>{let ms=s*1000;return (ms/1000).toFixed(6);}
+const dur=ms=>ms<0.001?ms.toFixed(3)+" µs":ms<1?ms.toFixed(3)+" ms":ms.toFixed(3)+" ms";
+const errName=ret=>{if(ret==null)return "";const n=-ret;
+  const M={32:"EPIPE",36:"ENOLCK",121:"ETIMEDOUT",11:"EAGAIN",5:"EIO",6:"ESRCH",104:"ECONNRESET"};
+  return (M[n]||"E"+n)+" ("+ret+")"};
+const opOf=t=>{const o=t.segs.map(s=>s.op).filter((v,i,a)=>a.indexOf(v)===i).join("+").toUpperCase();return o};
+const dataStr=t=>t.segs.filter(s=>s.op==="write").map(s=>s.data.join("-")).filter(Boolean).join(", ")||"—";
+const busColor=b=>{const cs=["#3a86ff","#a855f7","#10b981","#f97316","#ec4899","#14b8a6"];
+  return cs[Math.abs([...b].reduce((a,c)=>a*31+c.charCodeAt(0)|0,7))%cs.length]};
+
+async function boot(){
+  D=await (await fetch("/trace")).json();
+  FILTERED=D.txns.slice();
+  $("#src").textContent=D.source||"";
+  fillSel($("#fbus"),"bus",D.summary.buses);
+  fillSel($("#faddr"),"addr",D.summary.addresses);
+  renderStats();renderTimeline();renderTable();renderAddr();
+}
+function fillSel(el,key,vals){
+  ["any"].concat(vals).forEach(v=>{
+    const o=document.createElement("option");
+    o.value=v==="any"?"any":(key==="addr"?(v+0).toString(16):v);
+    o.textContent=v==="any"?(key==="addr"?"any":"all buses"):(key==="addr"?hex(v+0):v);
+    el.appendChild(o)});
+}
+function applyFilter(){
+  const b=$("#fbus").value,a=$("#faddr").value,r=$("#fresult").value,q=$("#fq").value.trim().toLowerCase();
+  FILTERED=D.txns.filter(t=>(b==="any"||t.bus===b)&&
+    (a==="any"||normAddr(t.addr)===a)&&
+    (r==="any"||(r==="ok"&&t.ok)||(r==="err"&&!t.ok&&!t.pending)||(r==="pend"&&t.pending))&&
+    (!q||t.bus.toLowerCase().includes(q)||normAddr(t.addr).toLowerCase().includes(q)||
+     dataStr(t).toLowerCase().includes(q)||t.task.toLowerCase().includes(q)));
+  renderStats();renderTimeline();renderTable();renderAddr();
+}
+function renderStats(){
+  const tot=FILTERED.length,
+  ok=FILTERED.filter(t=>t.ok).length,
+  er=FILTERED.filter(t=>t.pending===false&&!t.ok).length,
+  pe=FILTERED.filter(t=>t.pending).length;
+  $("#stats").innerHTML=
+    `<span>transactions <b>${tot}</b></span>`+
+    `<span>ok <b class="ok-line">${ok}</b></span>`+
+    `<span>err <b class="err-line">${er}</b></span>`+
+    `<span>no-result <b>${pe}</b></span>`+
+    `<span>buses <b>${D.summary.buses.join(", ")}</b></span>`;
+}
+
+function busShort(b){return b.replace("i2c-","")}
+function fmtDur(v){
+  if(v<0.001)return (v*1e6).toFixed(2)+" µs";
+  if(v<1)return (v*1e3).toFixed(2)+" ms";
+  return v.toFixed(3)+" s";
+}
+const TLC={pps:0, prevScroll:0, dragged:false, full0:0, full1:0, fullSpan:0, baseline:0};
+function ppz(){if(!TLC.baseline)return "";const r=TLC.pps/TLC.baseline;
+  return Math.abs(r-1)<0.01?"":" · zoom ×"+(r>=100?r.toFixed(0):r>=1?r.toFixed(1):r.toPrecision(2))}
+function renderTimeline(){
+  const box=$("#tl");
+  const tx=FILTERED;
+  if(!tx.length){box.innerHTML='<div class="empty">No transactions match the filter.</div>';return}
+  const buses=[];tx.forEach(t=>{if(!buses.includes(t.bus))buses.push(t.bus)});
+  const laneIdx=new Map();buses.forEach((b,i)=>laneIdx.set(b,i));
+  const busTx={};tx.forEach(t=>{busTx[t.bus]=(busTx[t.bus]||0)+1});
+  const rowH=46,padL=150,padR=30,laneT=44;
+  const H=laneT+buses.length*rowH+26;
+  const full0=Math.min.apply(null,tx.map(t=>t.t0));
+  const full1=Math.max.apply(null,tx.map(t=>t.t1));
+  TLC.full0=full0;TLC.full1=full1;TLC.fullSpan=Math.max(full1-full0,1e-9);
+  const vpPx=Math.max(60,(box.clientWidth||900)-padL-padR);
+  TLC.baseline=vpPx/TLC.fullSpan;
+  if(!(TLC.pps>0))TLC.pps=TLC.baseline;
+  const pps=TLC.pps;
+  const toX=s=>padL+(s-full0)*pps;
+  const svgW=padL+TLC.fullSpan*pps+padR;
+  const displayW=Math.max(svgW,box.clientWidth||800);
+  // pick a "nice" time tick step for the visible viewport
+  const vp=vpPx/pps; // seconds visible
+  const stepsMs=[0.001,0.0025,0.005,0.01,0.025,0.05,0.1,0.25,0.5,1,2.5,5,10,25,50,100,250,500,1000,10000,100000];
+  let tickStep=stepsMs[stepsMs.length-1];
+  for(const s of stepsMs){if(vp/s<=8){tickStep=s;break}}
+  // session boundaries (gaps > 50x median inter-tx, min 1s)
+  const iv=[];for(let i=1;i<tx.length;i++)iv.push(Math.max(0,tx[i].t0-tx[i-1].t1));
+  iv.sort((a,b)=>a-b);
+  const med=iv.length?iv[iv.length>>1]:0;
+  const thr=Math.max(1,med*50);
+  const marks=[];
+  for(let i=1;i<tx.length;i++){
+    if(tx[i].t0-tx[i-1].t1>thr)
+      marks.push({left:tx[i-1].t1,right:tx[i].t0,gap:tx[i].t0-tx[i-1].t1});
+  }
+  const ticks=[];
+  for(let tk=Math.ceil(full0/tickStep)*tickStep; tk<=full1+tickStep*0.01; tk+=tickStep)
+    ticks.push(tk);
+  let svg=`<svg width="${displayW}" height="${H}" font-family="inherit">`;
+  buses.forEach((b,li)=>{
+    const y=laneT+li*rowH;
+    if(li%2)svg+=`<rect x="0" y="${y}" width="${displayW}" height="${rowH}" fill="#101823"/>`;
+    svg+=`<line x1="0" y1="${y+rowH}" x2="${displayW}" y2="${y+rowH}" stroke="#1a2331"/>`;
+    svg+=`<text x="8" y="${y+rowH/2+4}" fill="#c3ccd9" font-size="12" font-weight="600">${b}</text>`;
+    svg+=`<text x="${padL-8}" y="${y+rowH/2+4}" fill="#5c6779" font-size="10" text-anchor="end">${busTx[b]} tx</text>`;
+  });
+  ticks.forEach(tk=>{
+    const xx=toX(tk);
+    svg+=`<line x1="${xx}" y1="30" x2="${xx}" y2="${H-22}" stroke="#223041"/>`;
+    svg+=`<text x="${xx}" y="${H-8}" fill="#5c6779" font-size="10" text-anchor="middle">${fmtDur(tk-full0)}</text>`;
+  });
+  marks.forEach(m=>{
+    const xm=toX((m.left+m.right)/2);
+    svg+=`<line x1="${xm}" y1="8" x2="${xm}" y2="${H-22}" stroke="#3a4658" stroke-dasharray="3 5"/>`;
+    svg+=`<text x="${xm}" y="20" fill="#8792a3" font-size="10" text-anchor="middle">⋯ gap ${fmtDur(m.gap)} ⋯</text>`;
+  });
+  tx.forEach(t=>{
+    const li=laneIdx.get(t.bus);
+    const y=laneT+li*rowH;
+    let s=toX(t.t0), e=toX(t.t1);
+    if(e-s<3)e=s+3;
+    const c=t.pending?"var(--pend)":(t.ok?"var(--ok)":"var(--err)");
+    const by=y+9,bh=rowH-18;
+    svg+=`<g class="tlrow" data-id="${t.id}" style="cursor:pointer">
+`;
+    const titleAttr=`id ${t.id} · ${t.bus} · ${hex(parseInt(t.addr,16))} · ${fmtDur(t.t1-t.t0)} · ${t.ok?"ok":(t.pending?"no result":"err "+errName(t.ret))}`;
+    svg+=`<title>${titleAttr}</title>`;
+    svg+=`<rect x="${s}" y="${by}" width="${e-s}" height="${bh}" rx="3" fill="${c}" opacity="0.92"/>`;
+    svg+=`</g>`;
+  });
+  svg+=`</svg>`;
+  box.innerHTML=svg;
+
+  // restore / set initial scroll
+  TLC.dragged=false;
+  if(!isFinite(TLC.prevScroll))TLC.prevScroll=0;
+  box.scrollLeft=TLC.prevScroll;
+
+  const gapNote=marks.length?` · ${marks.length} gap${marks.length>1?"s":""}`:'';
+  $("#tlmeta").textContent=`${tx.length} tx · ${buses.length} lane(s) · ${fmtDur(TLC.fullSpan)} span${gapNote} ${ppz()} `;
+
+  // wheel: cursor-centered zoom
+  if(box._tlWheel){box.removeEventListener("wheel",box._tlWheel,{capture:true,passive:false});}
+  box._tlWheel=(e)=>{
+    e.preventDefault();
+    if(!e.deltaY)return;
+    const rect=box.getBoundingClientRect();
+    const curX=e.clientX-rect.left;
+    const factor=e.deltaY<0?1.25:0.8;
+    const tAt=(box.scrollLeft+curX-padL)/pps+full0;
+    TLC.pps=Math.max(1e-6,Math.min(1e3,TLC.pps*factor));
+    renderTimeline();
+    box.scrollLeft=(tAt-full0)*TLC.pps+padL-curX;
+    TLC.prevScroll=box.scrollLeft;
+  };
+  box.addEventListener("wheel",box._tlWheel,{capture:true,passive:false});
+
+  // drag-to-pan (only off-bars)
+  box.style.cursor="grab";
+  box.onmousedown=(e)=>{
+    if(e.button!==0)return;
+    if(e.target.closest(".tlrow"))return;
+    box._dl={x:e.clientX,sl:box.scrollLeft};
+    box.style.cursor="grabbing";
+    e.preventDefault();
+  };
+  box.onmousemove=(e)=>{
+    if(!box._dl)return;
+    const dx=e.clientX-box._dl.x;
+    if(Math.abs(dx)>1)TLC.dragged=true;
+    box.scrollLeft=box._dl.sl-dx;
+    TLC.prevScroll=box.scrollLeft;
+  };
+  box.onmouseup=box.onmouseleave=()=>{if(box._dl){box._dl=null;box.style.cursor="grab"}};
+
+  // bar clicks
+  document.querySelectorAll(".tlrow").forEach(g=>g.addEventListener("click",ev=>{
+    if(TLC.dragged)return;
+    ev.stopPropagation();
+    SELECTED=tx.find(t=>t.id==g.dataset.id);
+    setTab("detail");renderDetail();
+  }));
+
+  const zoom=(f)=>{
+    const cx=box.scrollLeft+(box.clientWidth||900)/2;
+    const tC=(cx-padL)/pps+full0;
+    TLC.pps=Math.max(1e-6,Math.min(1e3,TLC.pps*f));
+    renderTimeline();
+    box.scrollLeft=(tC-full0)*TLC.pps+padL-(box.clientWidth||900)/2;
+    TLC.prevScroll=box.scrollLeft;
+  };
+  $("#tlzin").onclick =()=>zoom(1.6);
+  $("#tlzout").onclick=()=>zoom(1/1.6);
+  $("#tlzfit").onclick=()=>{TLC.pps=TLC.baseline;TLC.prevScroll=0;renderTimeline();};
+}
+function txgCount(g){return g.length}
+
+function renderTable(){
+  const tb=$("#tbody");const rows=FILTERED.slice().reverse();
+  tb.innerHTML=rows.map(t=>{
+    const st=t.pending?`<span class="badge b-pend">no result</span>`:
+      (t.ok?`<span class="badge b-ok">ok (${t.ret})</span>`:`<span class="badge b-err">err (${t.ret})</span>`);
+    return `<tr data-id="${t.id}"><td>${t.id}</td><td class="num">${t.t0.toFixed(6)}</td>`+
+      `<td class="num">${((t.t1-t.t0)*1000).toFixed(4)}</td>
+       <td>${t.bus}</td><td>${hex(parseInt(t.addr,16))}</td>
+       <td><span class="opicon">${opOf(t).replace("R","↔").replace("W","→")}</span>${opOf(t)}</td>
+       <td class="num">${dataStr(t)}</td><td>${st}</td>
+       <td class="${t.ok?"":"err-line"}">${t.ok?"":errName(t.ret)}</td></tr>`;
+  }).join("");
+  $("#dn").textContent=FILTERED.length+" tx";
+  document.querySelectorAll("#tbody tr").forEach(r=>
+    r.addEventListener("click",()=>{SELECTED=D.txns.find(t=>t.id==r.dataset.id);
+      setTab("detail");renderDetail();}));
+}
+
+function renderAddr(){
+  const el=$("#view-addr");
+  const by={};
+  FILTERED.forEach(t=>{const k=t.bus+"|"+t.addr;
+    by[k]=by[k]||{t,ok:0,err:0,pend:0}});
+  Object.values(by).forEach(g=>{
+    g.t.ok?g.ok++:g.t.pending?g.pend++:g.err++});
+  const arr=Object.values(by).sort((a,b)=>
+    a.t.bus.localeCompare(b.t.bus)||parseInt(a.t.addr,16)-parseInt(b.t.addr,16));
+  if(!arr.length){el.innerHTML='<div class="empty">No transactions.</div>';return}
+  el.innerHTML=arr.map(g=>{
+    const tot=g.ok+g.err+g.pend,
+    w=(g.ok/tot*100)+"%",wr=(g.err/tot*100)+"%",wp=(g.pend/tot*100)+"%";
+    return `<div class="addrrow" data-k="${g.t.bus}|${g.t.addr}">
+      <span style="font-family:var(--mono);min-width:118px">${g.t.bus} · ${hex(parseInt(g.t.addr,16))}</span>
+      <span class="bar-mini"><i style="width:${w};background:var(--ok)"></i>
+        <i style="width:${wr};background:var(--err)"></i>
+        <i style="width:${wp};background:var(--pend)"></i></span>
+      <span style="font-family:var(--mono)">${g.ok}/${g.err}/${g.pend}</span></div>`;
+  }).join("");
+  el.querySelectorAll(".addrrow").forEach(r=>r.addEventListener("click",()=>{
+    const [b,a]=r.dataset.k.split("|");
+    $("#fbus").value=b;$("#faddr").value=normAddr(a);
+    applyFilter();
+  }));
+}
+
+function renderDetail(){
+  const d=$("#view-detail");
+  if(!SELECTED){d.innerHTML='<div class="empty">Select a transaction.</div>';return}
+  const t=SELECTED;
+  const st=t.pending?'<span class="badge b-pend">no result</span>':
+    (t.ok?'<span class="badge b-ok">ok (ret='+t.ret+')</span>':'<span class="badge b-err">'+errName(t.ret)+'</span>');
+  const segs=t.segs.map(s=>{
+    const cls=s.op==="read"?"rd":"";
+    const bytes=(s.data&&s.data.length?s.data:new Array(s.len).fill("··"))
+      .map(b=>`<span class="b ${cls}">${b.padStart(2,"0").toUpperCase()}</span>`).join("");
+    const arrow=s.op==="read"?'<span class="arrow">(device → master, '+s.len+' B)</span>'
+      :'<span class="arrow">(master → device)</span>';
+    return `<div class="hex">${arrow}${bytes}</div>`;
+  }).join("");
+  d.innerHTML=`
+   <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+     <span style="font-family:var(--mono)">${t.bus}</span>
+     <span style="font-family:var(--mono)">addr ${hex(parseInt(t.addr,16))}</span>
+     ${st}</div>
+   <div class="meta">
+     <span>pid</span> ${t.pid} · <span>task</span> ${t.task} · <span>cpu</span> ${t.cpu}<br>
+     <span>t0</span> ${t.t0.toFixed(6)} s · <span>t1</span> ${t.t1.toFixed(6)} s ·
+     <span>dur</span> ${((t.t1-t.t0)*1000).toFixed(4)} ms${t.pending?' · <b>no i2c_result recorded</b>':''}
+   </div>${segs}`;
+}
+
+function setTab(t){
+  ["tbl","addr","detail"].forEach(v=>{
+    const on=v===t;
+    $("#view-"+v).classList.toggle("hidden",!on);
+    $("#t"+v).classList.toggle("active",on);
+  });
+}
+$("#fbus").addEventListener("change",applyFilter);
+$("#faddr").addEventListener("change",applyFilter);
+$("#fresult").addEventListener("change",applyFilter);
+$("#fq").addEventListener("input",applyFilter);
+$("#reset").addEventListener("click",()=>{
+  $("#fbus").value="any";$("#faddr").value="any";$("#fresult").value="any";$("#fq").value="";
+  applyFilter()});
+$("#ttbl").onclick=()=>setTab("tbl");
+$("#taddr").onclick=()=>setTab("addr");
+$("#tdetail").onclick=()=>setTab("detail");
+boot();
+</script>
+</body>
+</html>
